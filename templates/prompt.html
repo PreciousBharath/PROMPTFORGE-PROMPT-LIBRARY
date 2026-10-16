@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block heading %}{{ p.emoji }} {{ p.title }}{% endblock %}
+{% block subheading %}{{ p.description }} · by {{ p.author }}{% endblock %}
+{% block topbar_extra %}
+{% if p.user_id == user.id %}<a class="btn btn-ghost btn-sm" href="{{ url_for('new_prompt', pid=p.id) }}"><i class="bi bi-pencil"></i> Edit</a>
+{% else %}<form method="post" action="{{ url_for('fork', pid=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-ghost btn-sm"><i class="bi bi-diagram-2"></i> Fork</button></form>{% endif %}
+<a class="btn btn-primary btn-sm" href="{{ url_for('playground', prompt=p.id) }}"><i class="bi bi-play-fill"></i> Playground</a>{% endblock %}
+{% block head %}
+<style>
+.rendered{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px;white-space:pre-wrap;line-height:1.65;background:var(--input);border-radius:14px;padding:18px;border:1px solid var(--border);min-height:260px}
+.rendered .v{background:color-mix(in srgb,var(--a1) 25%,transparent);color:var(--text);border-radius:6px;padding:1px 6px;font-weight:600;transition:.3s}
+.rendered .v.filled{background:color-mix(in srgb,var(--a2) 28%,transparent)}
+.stars i{font-size:24px;cursor:pointer;color:var(--muted);transition:transform .15s}.stars i.on{color:#F7B32B}.stars i:hover{transform:scale(1.25)}
+.diff div{font-family:ui-monospace,monospace;font-size:12px;padding:2px 8px;border-radius:4px;white-space:pre-wrap}.diff .add{background:rgba(34,197,94,.18)}.diff .del{background:rgba(239,68,68,.18);text-decoration:line-through}
+</style>
+{% endblock %}
+{% block content %}
+<div class="grid g-2-1">
+  <div class="grid">
+    <div class="card glow fade-up"><h3><i class="bi bi-braces"></i> Fill the variables <span class="act muted small">{{ vars|length }} detected</span></h3>
+      <div class="grid g2" id="vars">{% for v in vars %}<div class="field"><label>{{ v }}</label><input class="input" data-v="{{ v }}" placeholder="Enter {{ v }}"></div>{% else %}<div class="muted small">No variables — this prompt is static.</div>{% endfor %}</div>
+      <div class="row between"><div class="row"><button class="btn btn-primary" id="copy"><i class="bi bi-clipboard-check"></i> Copy prompt</button>
+        <a class="btn btn-ghost" id="toPg" href="#"><i class="bi bi-terminal"></i> Send to playground</a></div><span class="muted small"><b id="tok">0</b> tokens</span></div>
+    </div>
+    <div class="card fade-up"><h3><i class="bi bi-eye"></i> Live preview</h3><div class="rendered" id="out"></div></div>
+  </div>
+  <div class="grid">
+    <div class="card fade-up"><h3><i class="bi bi-speedometer2"></i> Quality <span class="act badge {{ 'success' if a.overall >= 75 else 'warning' }}" style="font-size:14px">{{ a.overall }}/100</span></h3>
+      <div style="height:220px"><canvas id="radar"></canvas></div>
+      {% for t in a.tips %}<div class="small mt"><i class="bi bi-lightbulb" style="color:var(--warning)"></i> {{ t }}</div>{% else %}<div class="small mt"><i class="bi bi-patch-check" style="color:var(--success)"></i> Well-engineered prompt!</div>{% endfor %}</div>
+    <div class="card fade-up"><h3><i class="bi bi-star"></i> Rate & save</h3>
+      <div class="row between"><div class="stars" id="stars">{% for i in range(1, 6) %}<i class="bi bi-star-fill {{ 'on' if i <= my_rating }}" data-s="{{ i }}"></i>{% endfor %}</div>
+        <span class="muted small"><b id="avg">{{ p.rating or '—' }}</b> avg · <span id="nr">{{ p.n_ratings }}</span> ratings</span></div>
+      <div class="row mt"><button class="btn btn-ghost btn-sm" id="fav"><i class="bi {{ 'bi-heart-fill' if p.fav else 'bi-heart' }}" style="color:#EC4899"></i> <span>{{ 'Favourited' if p.fav else 'Favourite' }}</span></button>
+        <span class="badge"><i class="bi bi-lightning"></i> {{ p.uses }} uses</span><span class="badge" style="color:{{ CATS.get(p.category) }}">{{ p.category }}</span></div></div>
+    <div class="card fade-up"><h3><i class="bi bi-clock-history"></i> Version history</h3>
+      {% for v in versions %}<div class="list-item" style="padding:8px;cursor:pointer" data-vid="{{ v.id }}"><span class="badge accent">v{{ versions|length - loop.index0 }}</span>
+        <div style="flex:1"><b class="small">{{ v.note }}</b><div class="muted small">{{ v.created_at[:16] }}</div></div><i class="bi bi-file-diff"></i></div>{% endfor %}
+      <div class="diff mt" id="diff"></div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const PID = {{ p.id }}, BODY = {{ p.body|tojson }}, A = {{ a|tojson }};
+const vals = () => Object.fromEntries([...document.querySelectorAll('[data-v]')].map(i => [i.dataset.v, i.value]));
+function preview() { const v = vals(); let html = esc(BODY).replace(/\{\{\s*([^}]+?)\s*\}\}/g, (m, k) => v[k.trim()] ? `<span class="v filled">${esc(v[k.trim()])}</span>` : `<span class="v">${m}</span>`);
+  out.innerHTML = html; tok.textContent = Math.max(1, Math.round(out.textContent.length / 4)); }
+document.querySelectorAll('[data-v]').forEach(i => i.addEventListener('input', preview)); preview();
+copy.onclick = async () => { const r = await api('/api/render/' + PID, {body: {values: vals()}}); await navigator.clipboard.writeText(r.text).catch(() => {}); toast(`Copied! (${r.tokens} tokens)`, 'success'); };
+toPg.onclick = async e => { e.preventDefault(); const r = await api('/api/render/' + PID, {body: {values: vals()}}); try { sessionStorage.setItem('pg_prompt', r.text); } catch (x) {} location.href = '{{ url_for("playground") }}'; };
+stars.onclick = async e => { const s = e.target.closest('[data-s]'); if (!s) return; const r = await api('/api/rate/' + PID, {body: {stars: +s.dataset.s}});
+  stars.querySelectorAll('i').forEach(i => i.classList.toggle('on', +i.dataset.s <= +s.dataset.s)); avg.textContent = r.avg; nr.textContent = r.n; toast('Thanks for rating ⭐', 'success', 1500); };
+fav.onclick = async () => { const r = await api('/api/favorite/' + PID, {method: 'POST'}); fav.innerHTML = `<i class="bi ${r.fav ? 'bi-heart-fill' : 'bi-heart'}" style="color:#EC4899"></i> <span>${r.fav ? 'Favourited' : 'Favourite'}</span>`; };
+document.querySelectorAll('[data-vid]').forEach(el => el.onclick = async () => { const d = await api('/api/diff/' + el.dataset.vid);
+  diff.innerHTML = d.filter(x => x.t !== 'same' || x.s.trim()).slice(0, 40).map(x => `<div class="${x.t}">${x.t === 'add' ? '+ ' : x.t === 'del' ? '− ' : '  '}${esc(x.s)}</div>`).join('') || '<div class="muted">No changes</div>'; });
+let ch; function draw() { ch && ch.destroy(); applyChartDefaults(); const c = chartColors();
+  ch = new Chart(radar, {type: 'radar', data: {labels: Object.keys(A.scores), datasets: [{data: Object.values(A.scores), backgroundColor: c.a1 + '44', borderColor: c.a1, pointBackgroundColor: c.a2}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {r: {min: 0, max: 10, ticks: {display: false}, grid: {color: c.grid}, angleLines: {color: c.grid}}}}}); }
+draw(); addEventListener('themechange', draw);
+document.querySelector('[data-vid]')?.click();
+</script>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block subheading %}Use {{ '{{' }}variable{{ '}}' }} placeholders — quality is scored live as you type{% endblock %}
+{% block head %}
+<style>
+#body{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;min-height:380px;line-height:1.6}
+.meter{height:12px;border-radius:12px;background:var(--input);overflow:hidden}.meter span{display:block;height:100%;width:0;background:var(--grad);transition:width .5s}
+.snip{cursor:pointer}
+</style>
+{% endblock %}
+{% block content %}
+<form method="post" class="grid g-2-1">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="card glow fade-up">
+    <div class="grid g-2-1"><div class="field"><label>Title</label><input class="input" name="title" required value="{{ p.title if p }}" placeholder="e.g. Blog outline generator"></div>
+      <div class="field"><label>Emoji</label><select name="emoji">{% for e in ['✨','🤖','✉️','🎓','🧑‍💻','🗃️','💼','📝','🎤','🛍️','🧮','🎧','🎬','📈','📄','🧑‍🏫'] %}<option {{ 'selected' if p and p.emoji == e }}>{{ e }}</option>{% endfor %}</select></div></div>
+    <div class="grid g2"><div class="field"><label>Description</label><input class="input" name="description" value="{{ p.description if p }}" placeholder="One line about what it does"></div>
+      <div class="field"><label>Category</label><select name="category">{% for c in CATS %}<option {{ 'selected' if p and p.category == c }}>{{ c }}</option>{% endfor %}</select></div></div>
+    <div class="field"><label>Prompt body</label><textarea name="body" id="body" required placeholder="You are …&#10;&#10;Task: …{{ '{{' }}topic{{ '}}' }}…">{{ p.body if p }}</textarea></div>
+    <div class="row mb"><span class="muted small">Insert:</span>
+      {% for label, snip in [('Role','You are an expert {{role}}.\n\n'),('Variable','{{variable}}'),('Format','\n\nOutput format: a markdown table with columns …'),('Constraints','\n\nConstraints:\n- Under 150 words\n- Do not …'),('Chain-of-thought','\n\nThink step by step, then give the final answer on a line starting with "Answer:".'),('JSON','\n\nReturn ONLY valid JSON: {"result": "…"}')] %}
+      <span class="chip snip" data-s="{{ snip }}">{{ label }}</span>{% endfor %}</div>
+    <div class="grid g2">{% if p %}<div class="field"><label>Version note</label><input class="input" name="note" placeholder="What changed?"></div>{% endif %}
+      <label class="check" style="align-self:center"><input type="checkbox" name="public" {{ 'checked' if not p or p.is_public }}> Share in community gallery</label></div>
+    <div class="row"><button class="btn btn-primary"><i class="bi bi-cloud-check"></i> Save prompt</button>
+      {% if p %}<button class="btn btn-danger" formaction="{{ url_for('delete_prompt', pid=p.id) }}" onclick="return confirm('Delete this prompt?')"><i class="bi bi-trash"></i> Delete</button>{% endif %}</div>
+  </div>
+  <div class="card fade-up" style="align-self:start;position:sticky;top:96px"><h3><i class="bi bi-activity"></i> Live analysis</h3>
+    <div class="row between"><b style="font-size:34px" class="gradient-text" id="sc">0</b><span class="muted small"><span id="tk">0</span> tokens · <span id="wd">0</span> words</span></div>
+    <div class="meter mt"><span id="mt"></span></div>
+    <div id="dims" class="mt"></div>
+    <label class="mt">Detected variables</label><div class="row" id="vs"></div>
+    <div id="tips" class="mt"></div>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+let t; const run = () => { clearTimeout(t); t = setTimeout(async () => { const r = await api('/api/analyse', {body: {body: body.value}});
+  sc.textContent = r.overall; tk.textContent = r.tokens; wd.textContent = r.words; mt.style.width = r.overall + '%';
+  dims.innerHTML = Object.entries(r.scores).map(([k, v]) => `<div class="row between small" style="padding:4px 0"><span class="muted">${k}</span><div class="progress" style="width:55%"><span style="width:${v * 10}%"></span></div></div>`).join('');
+  vs.innerHTML = r.vars.map(v => `<span class="badge accent pop">${esc(v)}</span>`).join('') || '<span class="muted small">none yet</span>';
+  tips.innerHTML = r.tips.map(x => `<div class="small" style="padding:3px 0"><i class="bi bi-lightbulb" style="color:var(--warning)"></i> ${esc(x)}</div>`).join(''); }, 250); };
+body.addEventListener('input', run); run();
+document.querySelectorAll('.snip').forEach(s => s.onclick = () => { const v = s.dataset.s.replace(/\\n/g, '\n'), st = body.selectionStart;
+  body.value = body.value.slice(0, st) + v + body.value.slice(body.selectionEnd); body.focus(); body.selectionStart = body.selectionEnd = st + v.length; run(); });
+</script>
+{% endblock %}

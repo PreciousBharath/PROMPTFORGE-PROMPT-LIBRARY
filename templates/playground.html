@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block subheading %}Run prompts on any OpenAI-compatible model — OpenAI, Groq, Together or a local Ollama server{% endblock %}
+{% block head %}
+<style>
+#ptext{font-family:ui-monospace,Menlo,monospace;font-size:13.5px;min-height:300px;line-height:1.6}
+.output{white-space:pre-wrap;font-size:14px;line-height:1.7;min-height:300px;background:var(--input);border-radius:14px;padding:18px;border:1px solid var(--border)}
+.cursor::after{content:"▋";animation:blink 1s infinite;color:var(--a1)}
+</style>
+{% endblock %}
+{% block content %}
+<div class="grid g2">
+  <div class="card glow fade-up">
+    <div class="row between mb"><h3 style="margin:0"><i class="bi bi-pencil-square"></i> Prompt</h3>
+      <select id="load" style="width:auto"><option value="">Load from my library…</option>{% for m in mine %}<option value="{{ m.id }}">{{ m.emoji }} {{ m.title }}</option>{% endfor %}</select></div>
+    <textarea id="ptext" placeholder="Write or paste a prompt…">{{ p.body if p else '' }}</textarea>
+    <div class="grid g3 mt">
+      <div class="field"><label>Model</label><input class="input" id="model" value="gpt-4o-mini"></div>
+      <div class="field"><label>Temperature: <b id="tl">0.7</b></label><input type="range" id="temp" min="0" max="1.5" step="0.1" value="0.7" oninput="tl.textContent=this.value"></div>
+      <div class="field"><label>Base URL</label><input class="input" id="base" value="https://api.openai.com/v1"></div>
+    </div>
+    <div class="field"><label>API key <span class="muted">(kept in this browser session only)</span></label>
+      <div class="input-icon"><i class="bi bi-key"></i><input class="input" id="key" type="password" placeholder="sk-… (leave empty for a dry run)"><button type="button" class="toggle-pw"><i class="bi bi-eye"></i></button></div></div>
+    <button class="btn btn-primary btn-block" id="runBtn"><i class="bi bi-play-fill"></i> Run <span class="kbd" style="color:#fff;border-color:rgba(255,255,255,.4)">Ctrl ↵</span></button>
+  </div>
+  <div class="card fade-up"><div class="row between mb"><h3 style="margin:0"><i class="bi bi-robot"></i> Response</h3>
+    <div class="row"><span class="badge" id="meta">idle</span><button class="btn btn-ghost btn-sm" id="cp"><i class="bi bi-clipboard"></i></button></div></div>
+    <div class="output" id="output"><span class="muted">The model's answer will stream here…</span></div>
+    <h3 class="mt"><i class="bi bi-clock-history"></i> Session history</h3><div id="hist" class="small muted">No runs yet</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const get = k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set = (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} };
+if (get('pg_prompt') && !ptext.value) { ptext.value = get('pg_prompt'); sessionStorage.removeItem('pg_prompt'); }
+key.value = get('pg_key') || ''; key.oninput = () => set('pg_key', key.value);
+load.onchange = () => { if (load.value) location.href = '?prompt=' + load.value; };
+const history = [];
+async function go() {
+  runBtn.disabled = true; meta.textContent = 'running…'; output.innerHTML = '<span class="muted cursor">Thinking</span>'; const t0 = performance.now();
+  try { const r = await api('/api/run', {body: {prompt: ptext.value, key: key.value, model: model.value, base_url: base.value, temperature: +temp.value}});
+    const txt = r.output; output.textContent = ''; output.classList.add('cursor'); let i = 0;
+    const tm = setInterval(() => { output.textContent = txt.slice(0, i += 4); if (i >= txt.length) { clearInterval(tm); output.classList.remove('cursor'); } }, 12);
+    meta.textContent = `${r.dry_run ? 'dry run' : r.model} · ${r.tokens || '?'} tok · ${((performance.now() - t0) / 1000).toFixed(1)}s`;
+    history.unshift({t: new Date().toLocaleTimeString(), m: r.dry_run ? 'dry run' : r.model, p: ptext.value.slice(0, 70)});
+    hist.innerHTML = history.slice(0, 6).map(h => `<div class="list-item" style="padding:6px"><span class="badge">${h.t}</span><span style="flex:1">${esc(h.p)}…</span><span class="badge accent">${esc(h.m)}</span></div>`).join('');
+  } catch (e) { output.innerHTML = '<span style="color:var(--danger)">Request failed — check key, model and base URL.</span>'; meta.textContent = 'error'; }
+  runBtn.disabled = false;
+}
+runBtn.onclick = go; document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') go(); });
+cp.onclick = () => { navigator.clipboard.writeText(output.textContent); toast('Copied', 'success', 1200); };
+</script>
+{% endblock %}

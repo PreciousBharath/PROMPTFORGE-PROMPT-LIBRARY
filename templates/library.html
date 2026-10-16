@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block subheading %}{{ 'Top-rated public prompts from the community' if explore else 'Your prompts and favourites' }}{% endblock %}
+{% block topbar_extra %}<a class="btn btn-primary btn-sm" href="{{ url_for('new_prompt') }}"><i class="bi bi-plus-lg"></i> New prompt</a>{% endblock %}
+{% block head %}
+<style>
+.pc{display:flex;flex-direction:column;cursor:pointer}
+.pc .top{display:flex;gap:12px;align-items:center}.pc .em{font-size:28px;width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:var(--input)}
+.pc .body{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);background:var(--input);border-radius:12px;padding:10px;margin:12px 0;height:84px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 60%,transparent)}
+.heart{background:none;border:0;font-size:20px;cursor:pointer;color:var(--muted);transition:transform .2s}.heart.on{color:#EC4899;animation:pop .4s}
+.var{color:var(--a1);font-weight:600}
+</style>
+{% endblock %}
+{% block content %}
+{% if st %}<div class="grid g4 mb">
+  <div class="card hover fade-up"><div class="stat"><div class="ico"><i class="bi bi-collection"></i></div><div><div class="lbl">My prompts</div><div class="val" data-count="{{ st.total }}">0</div></div></div></div>
+  <div class="card hover fade-up"><div class="stat"><div class="ico c2"><i class="bi bi-heart"></i></div><div><div class="lbl">Favourites</div><div class="val" data-count="{{ st.favs }}">0</div></div></div></div>
+  <div class="card hover fade-up"><div class="stat"><div class="ico c3"><i class="bi bi-lightning"></i></div><div><div class="lbl">Total uses</div><div class="val" data-count="{{ st.uses }}">0</div></div></div></div>
+  <div class="card hover fade-up"><div class="stat"><div class="ico c5"><i class="bi bi-speedometer2"></i></div><div><div class="lbl">Avg quality</div><div class="val" data-count="{{ st.avg }}">0</div></div></div></div>
+</div>{% endif %}
+<div class="row mb" id="cf"><span class="chip active" data-c="">All</span>{% if st %}<span class="chip" data-c="__fav"><i class="bi bi-heart-fill" style="color:#EC4899"></i> Favourites</span>{% endif %}
+  {% for c, col in CATS.items() %}<span class="chip" data-c="{{ c }}"><span style="width:8px;height:8px;border-radius:50%;background:{{ col }}"></span>{{ c }}</span>{% endfor %}</div>
+<div class="grid g3">
+  {% for p in rows %}
+  <div class="card hover fade-up pc" data-c="{{ p.category }}" data-fav="{{ p.fav }}" data-t="{{ (p.title ~ ' ' ~ p.description)|lower }}" onclick="if(!event.target.closest('.heart'))location.href='{{ url_for('prompt', pid=p.id) }}'">
+    <div class="top"><div class="em">{{ p.emoji }}</div><div style="flex:1;min-width:0"><b>{{ p.title }}</b><div class="muted small">{{ p.description }}</div></div>
+      <button class="heart {{ 'on' if p.fav }}" data-id="{{ p.id }}"><i class="bi {{ 'bi-heart-fill' if p.fav else 'bi-heart' }}"></i></button></div>
+    <div class="body">{{ p.body[:260] }}</div>
+    <div class="row small" style="margin-top:auto"><span class="badge" style="color:{{ CATS.get(p.category,'#999') }}">{{ p.category }}</span>
+      <span class="badge"><i class="bi bi-braces"></i> {{ p.vars|length }} vars</span><span class="badge {{ 'success' if p.score >= 75 else 'warning' }}">Q {{ p.score }}</span>
+      <span class="muted" style="margin-left:auto"><i class="bi bi-star-fill" style="color:#F7B32B"></i> {{ p.rating or '—' }} · {{ p.uses }} uses</span></div>
+  </div>
+  {% else %}<div class="card empty"><i class="bi bi-stars"></i>No prompts yet</div>{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let c = '', q = ''; const filt = () => document.querySelectorAll('.pc').forEach(e => e.style.display = (!c || (c === '__fav' ? e.dataset.fav === '1' : e.dataset.c === c)) && e.dataset.t.includes(q) ? '' : 'none');
+cf.onclick = e => { const x = e.target.closest('.chip'); if (!x) return; cf.querySelectorAll('.chip').forEach(y => y.classList.toggle('active', y === x)); c = x.dataset.c; filt(); };
+globalSearch.oninput = e => { q = e.target.value.toLowerCase(); filt(); };
+document.querySelectorAll('.pc .body').forEach(b => b.innerHTML = esc(b.textContent).replace(/\{\{\s*([^}]+?)\s*\}\}/g, '<span class="var">{{ "{{" }}$1{{ "}}" }}</span>'));
+document.querySelectorAll('.heart').forEach(h => h.onclick = async () => { const r = await api('/api/favorite/' + h.dataset.id, {method: 'POST'});
+  h.classList.toggle('on', r.fav); h.innerHTML = `<i class="bi ${r.fav ? 'bi-heart-fill' : 'bi-heart'}"></i>`; h.closest('.pc').dataset.fav = r.fav ? '1' : '0'; toast(r.fav ? 'Added to favourites ❤️' : 'Removed from favourites', 'info', 1600); });
+</script>
+{% endblock %}
